@@ -241,4 +241,3 @@ if st.button("🚀 GENERAR PRESUPUESTO", type="primary", use_container_width=Tru
                 st.write(f"- {h}")
         
         st.write(f"### Varios:\n- Pintura: {l_pint} Lts.\n- Consumibles (Electrodos, discos, etc.): Incluidos en costo mat.")
-  
