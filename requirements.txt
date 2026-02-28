@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-streamlit
-=======
 streamlit
 fpdf2
 pillow
->>>>>>> d420561 (Version 4.4 completa con dependencias)
