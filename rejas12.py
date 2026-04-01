@@ -6,7 +6,7 @@ import os
 from fpdf import FPDF
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Herrería Pro v4.5", page_icon="⚒️")
+st.set_page_config(page_title="Herrería Roma v4.5", page_icon="⚒️")
 
 # --- PERSISTENCIA ---
 CONFIG_FILE = "precios_config.json"
@@ -37,17 +37,15 @@ PRECIOS_HERRAJES = {
 }
 
 def redon(n): return math.ceil(n / 1000) * 1000
-def gen_ws(txt): return f"https://wa.me/?text={urllib.parse.quote(txt)}"
 
 class PDF(FPDF):
-    def __init__(self, logo_img=None, nombre_h="Herrería"):
+    def __init__(self, nombre_h="Herrería"):
         super().__init__()
-        self.logo_img = logo_img
         self.nombre_h = nombre_h
     def header(self):
         if os.path.exists("logo_roma.png"): self.image("logo_roma.png", 10, 8, 33)
-        self.set_font('helvetica', 'B', 16)
-        self.set_x(45); self.cell(0, 10, self.nombre_h.upper(), 0, 1, 'L')
+        self.set_font('helvetica', 'B', 16); self.set_x(45)
+        self.cell(0, 10, self.nombre_h.upper(), 0, 1, 'L')
         self.set_font('helvetica', 'I', 10); self.set_x(45)
         self.cell(0, 5, 'Presupuesto Profesional - Validez 10 días', 0, 1, 'L')
         self.ln(15)
@@ -60,8 +58,14 @@ p_kg = p_barra_ref / (1.91 * 6)
 p_m2_malla = st.sidebar.number_input("Precio m2 Malla", value=float(precios_db['p_m2_malla']))
 p_litro_pintura = st.sidebar.number_input("Precio Litro Pintura", value=float(precios_db['p_litro_pintura']))
 p_consum_perc = st.sidebar.slider("Consumibles %", 1, 15, int(precios_db['p_consumibles_perc']))
+perc_desp = st.sidebar.slider("% Desperdicio Mat.", 0, 20, 10) / 100
 
-# --- VARIABLES ---
+st.sidebar.divider()
+st.sidebar.header("👷 Mano de Obra")
+metodo_mo = st.sidebar.selectbox("Cálculo MO", ["% de Materiales", "Por Día", "Por m2"])
+val_mo = st.sidebar.number_input("Valor Base MO $", value=45000)
+
+# --- VARIABLES DE CALCULO ---
 m_barrotes = 0; m_planchuela = 0; listado_caños = {}; m2_malla_total = 0
 m_angulo_total = 0; m_perfilT_total = 0; costo_herrajes = 0; detalles_obra = []
 lista_herrajes_taller = []; area_total_m2 = 0
@@ -70,7 +74,7 @@ mat_barrote_elegido = "1/2 (12.7mm)"; medida_marco_desplegado = "1 x 1/8"
 st.title(f"🛡️ {nombre_h}")
 cliente = st.text_input("Nombre del Cliente", "Presupuesto Particular")
 
-# --- MÓDULOS DE DISEÑO ---
+# --- MÓDULO 1: PAÑOS ---
 st.header("1. Paños de Frente / Rejas")
 if st.checkbox("Incluir Paños", value=True):
     c1, c2 = st.columns(2)
@@ -78,52 +82,80 @@ if st.checkbox("Incluir Paños", value=True):
     an_f = c1.number_input("Ancho (m)", 0.1, 10.0, 2.5, key="wf")
     al_f = c1.number_input("Alto (m)", 0.1, 5.0, 1.8, key="hf")
     area_total_m2 += (an_f * al_f) * cant_f
-    relleno = c2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_f")
+    relleno_f = c2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_f")
     if c2.checkbox("¿Lleva Bastidor?", value=True, key="bf"):
-        m_c = c2.selectbox("Caño Bastidor", list(PESOS_C.keys()), key="cf")
-        listado_caños[m_c] = listado_caños.get(m_c, 0) + (an_f + al_f) * 2 * cant_f
-    if relleno == "Barrotes":
+        m_c_f = c2.selectbox("Caño Bastidor", list(PESOS_C.keys()), key="cf")
+        listado_caños[m_c_f] = listado_caños.get(m_c_f, 0) + (an_f + al_f) * 2 * cant_f
+    if relleno_f == "Barrotes":
         mat_barrote_elegido = c2.selectbox("Hierro", list(PESOS_H.keys()), key="hf_f")
         m_barrotes += (math.ceil(an_f / 0.12) + 1) * al_f * cant_f
-        m_planchuela += an_f * c2.number_input("Filas Planchuela", 1, 6, 2, key="pf") * cant_f
+        m_planchuela += an_f * c2.number_input("Planchuelas", 1, 6, 2, key="pf") * cant_f
     else:
         medida_marco_desplegado = c2.selectbox("Medida Ángulo/T", list(PESOS_ANGULO_T.keys()), key="med_f")
         m2_malla_total += (an_f * al_f) * cant_f
         m_angulo_total += ((an_f * al_f) * cant_f) * 3
         m_perfilT_total += ((an_f * al_f) * cant_f) * 1
-    detalles_obra.append(f"{cant_f} Paños de {relleno}")
+    detalles_obra.append(f"{cant_f} Paños de {relleno_f}")
 
-st.header("2. Puerta y Portón")
-cp1, cp2 = st.columns(2)
-if cp1.checkbox("Incluir Puerta"):
-    an_p = cp1.number_input("Ancho Puerta", 0.5, 2.0, 0.9)
-    al_p = cp1.number_input("Alto Puerta", 1.5, 3.0, 2.0)
+# --- MÓDULO 2: PUERTA ---
+st.divider()
+st.header("2. Puerta Peatonal")
+if st.checkbox("Incluir Puerta"):
+    cp1, cp2 = st.columns(2)
+    an_p = cp1.number_input("Ancho (m)", 0.5, 2.0, 0.9, key="wp")
+    al_p = cp1.number_input("Alto (m)", 1.5, 3.0, 2.0, key="hp")
     area_total_m2 += (an_p * al_p)
+    relleno_p = cp2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_p")
+    if cp2.checkbox("¿Lleva Bastidor?", value=True, key="bp"):
+        m_c_p = cp2.selectbox("Caño Puerta", list(PESOS_C.keys()), key="cp")
+        listado_caños[m_c_p] = listado_caños.get(m_c_p, 0) + (an_p + al_p) * 2
+    if relleno_p == "Barrotes":
+        m_barrotes += (math.ceil(an_p / 0.12) + 1) * al_p
+        m_planchuela += an_p * cp2.number_input("Planchuelas", 1, 6, 2, key="pp")
+    else:
+        m2_malla_total += (an_p * al_p)
+        m_angulo_total += (an_p * al_p) * 3
+        m_perfilT_total += (an_p * al_p) * 1
     costo_herrajes += sum([PRECIOS_HERRAJES["Cerradura Seg."], PRECIOS_HERRAJES["Pomelas (Par)"], PRECIOS_HERRAJES["Caja Cerradura"]])
     lista_herrajes_taller.extend(["Cerradura Seg.", "2 Pomelas", "Caja Cerradura"])
-    detalles_obra.append("1 Puerta Peatonal")
+    detalles_obra.append(f"1 Puerta Peatonal de {relleno_p}")
 
-if cp2.checkbox("Incluir Portón"):
-    an_po = cp2.number_input("Ancho Portón", 2.0, 10.0, 3.0)
-    tipo_po = cp2.radio("Tipo", ["Corredizo", "Batiente"])
+# --- MÓDULO 3: PORTÓN ---
+st.divider()
+st.header("3. Portón Vehicular")
+if st.checkbox("Incluir Portón"):
+    cpo1, cpo2 = st.columns(2)
+    an_po = cpo1.number_input("Ancho Total (m)", 2.0, 10.0, 3.0, key="wpo")
+    tipo_po = cpo1.radio("Apertura", ["Corredizo", "Batiente"], key="tpo")
     area_total_m2 += (an_po * 2.1)
+    relleno_po = cpo2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_po")
+    if cpo2.checkbox("¿Lleva Bastidor?", value=True, key="bpo"):
+        m_c_po = cpo2.selectbox("Caño Portón", list(PESOS_C.keys()), key="cpo")
+        listado_caños[m_c_po] = listado_caños.get(m_c_po, 0) + (an_po * 2 + 8.0)
+    if relleno_po == "Barrotes":
+        m_barrotes += (math.ceil(an_po / 0.12) + 1) * 2.1
+        m_planchuela += an_po * cpo2.number_input("Planchuelas", 1, 6, 2, key="ppo")
+    else:
+        m2_malla_total += (an_po * 2.1)
+        m_angulo_total += (an_po * 2.1) * 3
+        m_perfilT_total += (an_po * 2.1) * 1
     if tipo_po == "Corredizo":
         costo_herrajes += PRECIOS_HERRAJES["Kit Ruedas (Par)"] + PRECIOS_HERRAJES["Rodillo Guía (Set)"] + (an_po * 2 * PRECIOS_HERRAJES["Angulo Guía 1 1/4 (m)"])
         lista_herrajes_taller.extend(["Kit Ruedas", "Set Rodillos", f"{an_po*2:.1f}m Ángulo Guía"])
     else:
         costo_herrajes += PRECIOS_HERRAJES["Pomelas (Par)"] * 2
         lista_herrajes_taller.append("2 Juegos Pomelas Ref.")
-    detalles_obra.append(f"1 Portón {tipo_po}")
+    detalles_obra.append(f"1 Portón {tipo_po} de {relleno_po}")
 
-st.header("3. Servicios y Adicionales")
+# --- SECCIÓN: EXTRAS ---
+st.divider()
+st.header("4. Servicios y Extras")
 cs1, cs2 = st.columns(2)
 p_flete = cs1.number_input("Flete $", value=20000)
 p_coloc = cs2.number_input("Colocación $", value=35000)
-p_adicional = st.number_input("Adicional (Altura / Distancia / Viáticos) $", value=0, help="Sumar costos extras por complejidad")
-metodo_mo = st.sidebar.selectbox("Cálculo MO", ["% de Materiales", "Por Día", "Por m2"])
-val_mo = st.sidebar.number_input("Valor Base MO $", value=45000)
+p_adicional = st.number_input("Adicional (Altura / Distancia / Viáticos) $", value=0)
 
-# --- CÁLCULOS ---
+# --- PROCESO DE CÁLCULO ---
 if st.button("🚀 GENERAR PRESUPUESTO", type="primary", use_container_width=True):
     p_b = PESOS_H.get(mat_barrote_elegido, 1.21)
     p_ang = PESOS_ANGULO_T.get(medida_marco_desplegado, 1.83)
@@ -133,9 +165,8 @@ if st.button("🚀 GENERAR PRESUPUESTO", type="primary", use_container_width=Tru
     peso_extra = (m_planchuela * 0.9) + ((m_angulo_total + m_perfilT_total) * p_ang)
     peso_total_hierro = peso_caños + peso_barrotes + peso_extra
     
-    # Consumibles técnicos
     kg_electrodos = math.ceil(peso_total_hierro / 40)
-    discos_corte = math.ceil(peso_total_hierro / 30) # Estimado 1 disco cada 30kg de hierro
+    discos_corte = math.ceil(peso_total_hierro / 30)
     
     c_hierros = peso_total_hierro * p_kg
     sup_pint = (peso_total_hierro * 0.05) + (m2_malla_total * 2)
@@ -150,19 +181,18 @@ if st.button("🚀 GENERAR PRESUPUESTO", type="primary", use_container_width=Tru
     
     total_gral = mats_redon + mo_redon + p_flete + p_coloc + p_adicional
 
-    st.success(f"## TOTAL: ${total_gral:,.0f}")
+    st.success(f"## TOTAL FINAL: ${total_gral:,.0f}")
     
-    # PDF
     pdf = PDF(nombre_h=nombre_h)
     pdf.add_page()
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, f"Cliente: {cliente}", 0, 1)
-    pdf.set_font("helvetica", '', 11); pdf.multi_cell(0, 8, f"Trabajo: {', '.join(detalles_obra)}")
+    pdf.set_font("helvetica", '', 11); pdf.multi_cell(0, 8, f"Detalle: {', '.join(detalles_obra)}")
     pdf.ln(5)
     pdf.cell(0, 8, f"- Materiales y Consumibles: ${mats_redon:,.0f}", 0, 1)
-    pdf.cell(0, 8, f"- Mano de Obra y Taller: ${mo_redon:,.0f}", 0, 1)
-    pdf.cell(0, 8, f"- Flete, Colocación y Extras: ${p_flete + p_coloc + p_adicional:,.0f}", 0, 1)
+    pdf.cell(0, 8, f"- Mano de Obra: ${mo_redon:,.0f}", 0, 1)
+    pdf.cell(0, 8, f"- Otros (Flete/Coloc/Extras): ${p_flete + p_coloc + p_adicional:,.0f}", 0, 1)
     pdf.ln(5); pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 15, f"TOTAL FINAL: ${total_gral:,.0f}", 0, 1)
-    pdf.set_font("helvetica", 'I', 9); pdf.cell(0, 10, "* Presupuesto válido por 10 días corridos debido a la inestabilidad de precios.", 0, 1)
+    pdf.set_font("helvetica", 'I', 9); pdf.cell(0, 10, "* Presupuesto valido por 10 dias corridos por inestabilidad de precios.", 0, 1)
     
     st.download_button("📥 DESCARGAR PDF", data=bytes(pdf.output()), file_name=f"Presupuesto_{cliente}.pdf")
 
@@ -175,7 +205,7 @@ if st.button("🚀 GENERAR PRESUPUESTO", type="primary", use_container_width=Tru
             if m_angulo_total > 0:
                 st.write(f"- Ángulo {medida_marco_desplegado}: {math.ceil((m_angulo_total*1.1)/6)} barras")
                 st.write(f"- Perfil T {medida_marco_desplegado}: {math.ceil((m_perfilT_total*1.1)/6)} barras")
-                st.write(f"- Malla: {math.ceil(m2_malla_total/2.4)} planchas")
+                st.write(f"- Malla Desplegada: {math.ceil(m2_malla_total/2.4)} planchas")
         with col_t2:
             st.write("### Insumos:")
             st.write(f"- **Pintura:** {l_pint} Litros")
