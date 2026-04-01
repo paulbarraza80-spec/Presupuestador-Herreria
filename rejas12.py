@@ -6,7 +6,7 @@ import os
 from fpdf import FPDF
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Herrería Roma v4.5", page_icon="⚒️")
+st.set_page_config(page_title="Herrería Roma v4.6", page_icon="⚒️")
 
 # --- PERSISTENCIA ---
 CONFIG_FILE = "precios_config.json"
@@ -21,10 +21,16 @@ precios_db = cargar_precios()
 
 # --- DATA TÉCNICA ARGENTINA ---
 PESOS_H = {"1/2 (12.7mm)": 0.99, "9/16 (14mm)": 1.21, "5/8 (15.8mm)": 1.55}
+# Lista de caños para manejar los índices
+LISTA_CANOS = [
+    "Caño 30x30x1.6", "Caño 40x30x1.6", "Caño 40x40x1.6",
+    "Caño 60x30x1.6", "Caño 60x40x1.6",
+    "Caño 60x60x2.0", "Caño 80x80x2.0", "Caño 100x100x2.0"
+]
 PESOS_C = {
     "Caño 30x30x1.6": 1.41, "Caño 40x30x1.6": 1.66, "Caño 40x40x1.6": 1.91,
-    "Caño 60x30x1.6": 2.16, "Caño 60x40x1.6": 2.41, "Caño 60x60x2.0": 3.70, 
-    "Caño 80x80x2.0": 4.90, "Caño 100x100x2.0": 6.10
+    "Caño 60x30x1.6": 2.16, "Caño 60x40x1.6": 2.41,
+    "Caño 60x60x2.0": 3.70, "Caño 80x80x2.0": 4.90, "Caño 100x100x2.0": 6.10
 }
 PESOS_ANGULO_T = {
     "1/2 x 1/8": 0.88, "3/4 x 1/8": 1.35, "1 x 1/8": 1.83, "1 1/4 x 1/8": 2.30, 
@@ -63,7 +69,8 @@ perc_desp = st.sidebar.slider("% Desperdicio Mat.", 0, 20, 10) / 100
 st.sidebar.divider()
 st.sidebar.header("👷 Mano de Obra")
 metodo_mo = st.sidebar.selectbox("Cálculo MO", ["% de Materiales", "Por Día", "Por m2"])
-val_mo = st.sidebar.number_input("Valor Base MO $", value=45000)
+# CAMBIO 1: Valor MO predeterminado en 100
+val_mo = st.sidebar.number_input("Valor Base MO $", value=100)
 
 # --- VARIABLES DE CALCULO ---
 m_barrotes = 0; m_planchuela = 0; listado_caños = {}; m2_malla_total = 0
@@ -84,7 +91,8 @@ if st.checkbox("Incluir Paños", value=True):
     area_total_m2 += (an_f * al_f) * cant_f
     relleno_f = c2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_f")
     if c2.checkbox("¿Lleva Bastidor?", value=True, key="bf"):
-        m_c_f = c2.selectbox("Caño Bastidor", list(PESOS_C.keys()), key="cf")
+        # CAMBIO 2: Index 4 corresponde a 60x40x1.6
+        m_c_f = c2.selectbox("Caño Bastidor", LISTA_CANOS, index=4, key="cf")
         listado_caños[m_c_f] = listado_caños.get(m_c_f, 0) + (an_f + al_f) * 2 * cant_f
     if relleno_f == "Barrotes":
         mat_barrote_elegido = c2.selectbox("Hierro", list(PESOS_H.keys()), key="hf_f")
@@ -107,7 +115,8 @@ if st.checkbox("Incluir Puerta"):
     area_total_m2 += (an_p * al_p)
     relleno_p = cp2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_p")
     if cp2.checkbox("¿Lleva Bastidor?", value=True, key="bp"):
-        m_c_p = cp2.selectbox("Caño Puerta", list(PESOS_C.keys()), key="cp")
+        # CAMBIO 3: Index 4 corresponde a 60x40x1.6
+        m_c_p = cp2.selectbox("Caño Puerta", LISTA_CANOS, index=4, key="cp")
         listado_caños[m_c_p] = listado_caños.get(m_c_p, 0) + (an_p + al_p) * 2
     if relleno_p == "Barrotes":
         m_barrotes += (math.ceil(an_p / 0.12) + 1) * al_p
@@ -130,7 +139,8 @@ if st.checkbox("Incluir Portón"):
     area_total_m2 += (an_po * 2.1)
     relleno_po = cpo2.radio("Relleno", ["Barrotes", "Metal Desplegado"], key="rel_po")
     if cpo2.checkbox("¿Lleva Bastidor?", value=True, key="bpo"):
-        m_c_po = cpo2.selectbox("Caño Portón", list(PESOS_C.keys()), key="cpo")
+        # CAMBIO 4: Index 4 corresponde a 60x40x1.6
+        m_c_po = cpo2.selectbox("Caño Portón", LISTA_CANOS, index=4, key="cpo")
         listado_caños[m_c_po] = listado_caños.get(m_c_po, 0) + (an_po * 2 + 8.0)
     if relleno_po == "Barrotes":
         m_barrotes += (math.ceil(an_po / 0.12) + 1) * 2.1
@@ -147,9 +157,20 @@ if st.checkbox("Incluir Portón"):
         lista_herrajes_taller.append("2 Juegos Pomelas Ref.")
     detalles_obra.append(f"1 Portón {tipo_po} de {relleno_po}")
 
+# --- MÓDULO 4: POSTES ---
+st.divider()
+st.header("4. Postes")
+if st.checkbox("Agregar Postes"):
+    c1ps, c2ps = st.columns(2)
+    cant_ps = c1ps.number_input("Cantidad", 1, 20, 2)
+    h_ps = c1ps.number_input("Altura (m)", 0.5, 4.0, 2.2)
+    # CAMBIO 5: Index 7 corresponde a 100x100x2.0
+    m_c_ps = c2ps.selectbox("Caño Poste", LISTA_CANOS, index=7, key="cps")
+    listado_caños[m_c_ps] = listado_caños.get(m_c_ps, 0) + (cant_ps * h_ps)
+
 # --- SECCIÓN: EXTRAS ---
 st.divider()
-st.header("4. Servicios y Extras")
+st.header("5. Servicios y Extras")
 cs1, cs2 = st.columns(2)
 p_flete = cs1.number_input("Flete $", value=20000)
 p_coloc = cs2.number_input("Colocación $", value=35000)
